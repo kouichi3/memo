@@ -1,59 +1,252 @@
 <!DOCTYPE html>
-<html>
+<html lang="ja">
 <head>
-<meta charset="UTF-8">
-<title>myMemoPad</title>
-<script src="js/jquery-2.1.3.min.js"></script>
-<link rel="stylesheet" href="sample.css">
+  <meta charset="UTF-8">
+  <title>Mac風メモアプリ</title>
+  <link rel="stylesheet" href="sample.css">
 </head>
 <body>
-<header>
-<h1>MemoPad</h1>
-</header>
-<main>
-    <input type="text" id="key">
-    <textarea id="memo"></textarea>
-    <ul>
-        <li id="save">Save</li>
-        <li id="clear">Clear</li>
-    </ul>
-</main>
-<table id="list">
-<!-- ここに追加データが挿入される -->
-</table>
-<script>
+  <div class="window">
+    <div class="window-header">
+      <div class="dot red"></div>
+      <div class="dot yellow"></div>
+      <div class="dot green"></div>
+    </div>
+    <div class="window-body">
+      <aside class="sidebar">
+        <div class="sidebar-header">
+          <div class="sidebar-title">メモ</div>
+          <button class="new-note-btn" id="newNoteBtn">＋ 新規</button>
+        </div>
+        <ul class="note-list" id="noteList"></ul>
+      </aside>
 
-//1.Save クリックイベント
-$("#save").on("click",function(){
-    const key = $("#key").val();
-    const value = $("#memo").val();
-    localStorage.setItem(key,value);
-    const html = '<tr><td>'+key+'</td><td>'+value+'</td></tr>';
-    $("#list").append(html);//一行入れる
-});
+      <section class="editor">
+        <div class="editor-header">
+          <input type="text" id="noteTitle" class="editor-title" placeholder="タイトル">
+          <button id="pinNoteBtn" class="icon-btn" title="ピン留め切替">☆</button>
+          <button id="deleteNoteBtn" class="icon-btn icon-delete" title="このメモを削除">🗑</button>
+        </div>
+        <div class="editor-main">
+          <textarea id="noteBody" class="editor-textarea" placeholder="ここにメモを書いてください"></textarea>
+        </div>
+        <div class="editor-footer" id="statusText">
+          保存済み
+        </div>
+      </section>
+    </div>
+  </div>
 
+  <script>
+    const STORAGE_KEY = "mac-like-notes-v1";
+    let notes = [];
+    let activeNoteId = null;
+    let saveTimer = null;
 
-//2.clear クリックイベント
-$("#clear").on("click",function(){
-    localStorage.clear(); //空っぽにする
-    $("#list").empty(); //テーブル内を空にする
-    $("#key").val(""); //空文字を入れて消す
-    $("#memo").val(""); //空文字を入れて消す
-});
+    function loadNotes() {
+      const data = localStorage.getItem(STORAGE_KEY);
+      notes = data ? JSON.parse(data) : [];
+      // 古いデータには pinned がない可能性があるので補正
+      notes = notes.map(n => ({
+        ...n,
+        pinned: !!n.pinned
+      }));
+      sortNotesInPlace();
+    }
 
+    function saveNotes() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(notes));
+    }
 
-//3.ページ読み込み：保存データ取得表示
-for(let i=0; i<localStorage.length; i++){
-    const key = localStorage.key(i); //key名取得
-    const value = localStorage.getItem(key); //値取得
-    const html = '<tr><td>'+key+'</td><td>'+value+'</td></tr>';
-    $("#list").append(html); //一行入れる
-}
+    function createNote() {
+      const id = Date.now().toString();
+      const newNote = {
+        id,
+        title: "新しいメモ",
+        body: "",
+        updatedAt: Date.now(),
+        pinned: false
+      };
+      notes.push(newNote);
+      sortNotesInPlace();
+      activeNoteId = id;
+      saveNotes();
+      renderNoteList();
+      renderEditor();
+    }
 
+    function setActiveNote(id) {
+      activeNoteId = id;
+      renderNoteList();
+      renderEditor();
+    }
 
+    function getActiveNote() {
+      return notes.find(n => n.id === activeNoteId) || null;
+    }
 
+    function formatDate(ts) {
+      const d = new Date(ts);
+      const y = d.getFullYear();
+      const m = d.getMonth() + 1;
+      const day = d.getDate();
+      const h = d.getHours().toString().padStart(2, "0");
+      const min = d.getMinutes().toString().padStart(2, "0");
+      return `${y}/${m}/${day} ${h}:${min}`;
+    }
 
-</script>
-<footer><small>G's</small></footer>
+    function sortNotesInPlace() {
+      notes.sort((a, b) => {
+        if (a.pinned && !b.pinned) return -1;
+        if (!a.pinned && b.pinned) return 1;
+        return b.updatedAt - a.updatedAt;
+      });
+    }
+
+    function renderNoteList() {
+      const listEl = document.getElementById("noteList");
+      listEl.innerHTML = "";
+      notes.forEach(note => {
+        const li = document.createElement("li");
+        li.className = "note-item" + (note.id === activeNoteId ? " active" : "");
+        li.dataset.id = note.id;
+
+        const titleEl = document.createElement("div");
+        titleEl.className = "note-item-title";
+        titleEl.textContent = (note.pinned ? "📌 " : "") + (note.title || "（無題）");
+
+        const previewEl = document.createElement("div");
+        previewEl.className = "note-item-preview";
+        const previewText = (note.body || "").replace(/\n/g, " ");
+        previewEl.textContent = previewText.slice(0, 30);
+
+        const dateEl = document.createElement("div");
+        dateEl.className = "note-item-date";
+        dateEl.textContent = formatDate(note.updatedAt);
+
+        li.appendChild(titleEl);
+        li.appendChild(previewEl);
+        li.appendChild(dateEl);
+
+        li.addEventListener("click", () => {
+          setActiveNote(note.id);
+        });
+
+        listEl.appendChild(li);
+      });
+    }
+
+    function renderEditor() {
+      const titleInput = document.getElementById("noteTitle");
+      const bodyTextarea = document.getElementById("noteBody");
+      const statusText = document.getElementById("statusText");
+      const pinBtn = document.getElementById("pinNoteBtn");
+
+      const note = getActiveNote();
+      if (!note) {
+        titleInput.value = "";
+        bodyTextarea.value = "";
+        statusText.textContent = "メモが選択されていません";
+        if (pinBtn) {
+          pinBtn.disabled = true;
+          pinBtn.textContent = "☆";
+        }
+        return;
+      }
+
+      titleInput.value = note.title;
+      bodyTextarea.value = note.body;
+      statusText.textContent = "保存済み：" + formatDate(note.updatedAt);
+      if (pinBtn) {
+        pinBtn.disabled = false;
+        pinBtn.textContent = note.pinned ? "★" : "☆";
+      }
+    }
+
+    function setupEvents() {
+      const newBtn = document.getElementById("newNoteBtn");
+      const titleInput = document.getElementById("noteTitle");
+      const bodyTextarea = document.getElementById("noteBody");
+      const statusText = document.getElementById("statusText");
+      const deleteBtn = document.getElementById("deleteNoteBtn");
+      const pinBtn = document.getElementById("pinNoteBtn");
+
+      newBtn.addEventListener("click", () => {
+        createNote();
+      });
+
+      if (deleteBtn) {
+        deleteBtn.addEventListener("click", () => {
+          const note = getActiveNote();
+          if (!note) return;
+          const ok = window.confirm("このメモを削除しますか？");
+          if (!ok) return;
+          const idx = notes.findIndex(n => n.id === note.id);
+          if (idx !== -1) {
+            notes.splice(idx, 1);
+            if (notes.length > 0) {
+              sortNotesInPlace();
+              activeNoteId = notes[0].id;
+            } else {
+              activeNoteId = null;
+            }
+            saveNotes();
+            renderNoteList();
+            renderEditor();
+          }
+        });
+      }
+
+      if (pinBtn) {
+        pinBtn.addEventListener("click", () => {
+          const note = getActiveNote();
+          if (!note) return;
+          note.pinned = !note.pinned;
+          note.updatedAt = Date.now();
+          sortNotesInPlace();
+          saveNotes();
+          renderNoteList();
+          renderEditor();
+        });
+      }
+
+      function scheduleSave() {
+        const note = getActiveNote();
+        if (!note) return;
+
+        note.title = titleInput.value;
+        note.body = bodyTextarea.value;
+        note.updatedAt = Date.now();
+
+        statusText.textContent = "保存中...";
+
+        if (saveTimer) clearTimeout(saveTimer);
+
+        saveTimer = setTimeout(() => {
+          sortNotesInPlace();
+          saveNotes();
+          renderNoteList();
+          statusText.textContent = "保存済み：" + formatDate(note.updatedAt);
+        }, 500);
+      }
+
+      titleInput.addEventListener("input", scheduleSave);
+      bodyTextarea.addEventListener("input", scheduleSave);
+    }
+
+    function init() {
+      loadNotes();
+      if (notes.length === 0) {
+        createNote();
+      } else {
+        activeNoteId = notes[0].id;
+      }
+      renderNoteList();
+      renderEditor();
+      setupEvents();
+    }
+
+    init();
+  </script>
 </body>
 </html>
